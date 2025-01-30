@@ -7,6 +7,8 @@ const path = require('path');
 const puppeteer = require('puppeteer');
 const { PDFDocument } = require('pdf-lib');
 const cheerio = require('cheerio');
+let vehicleIdNumber
+
 
 
 // Configurar los reintentos con axios-retry
@@ -34,28 +36,44 @@ client.once('ready', () => {
 client.on('messageCreate', async (message) => {
     if (message.author.bot) return;
 
-    if (message.content.startsWith('!buscar')) {
-        const chassisNumber = message.content.split(' ')[1];
+    if (message.content.startsWith('!chassis') || message.content.startsWith('!plate')) {
+        const args = message.content.split(' '); // Obtener los argumentos del mensaje
+        const searchType = message.content.startsWith('!chassis') ? 'chassis' : 'plate'; // Determinar si es chassis o plate
+        const searchValue = args[1]; // El valor de búsqueda (número de chasis o placa)
 
-        if (!chassisNumber) {
-            message.reply('Por favor, proporciona un número de chasis después de "!buscar".');
+        if (!searchValue) {
+            message.reply('Por favor, proporciona un número de chasis o placa después de "!buscar".');
+            return;
+        }
+
+        if (!['chassis', 'plate'].includes(searchType)) {
+            message.reply('Por favor, utiliza "chassis" o "plate" para especificar el tipo de búsqueda.');
             return;
         }
 
         try {
             await message.reply('Procesando la solicitud...');
 
-            const { text, downloadLink } = await buscarChasis(chassisNumber, message);
+            const { text, downloadLink } = await buscar(searchType, searchValue, message);
 
-            // Generar screenshot
-            const screenshotPath = await generarScreenshotChasis(chassisNumber, message);
+            // Intentar generar el screenshot con reintentos
+            let screenshotPath = null;
 
-            // Enviar screenshot
-            await message.channel.send({ files: [screenshotPath] });
+            try {
+                screenshotPath = await generarScreenshotChasis(searchType, searchValue, message);
+            } catch (error) {
+                await message.reply('No se pudo hacer la captura del chassis.');
+                return;
+            }
+
+            // Si la captura se generó correctamente, enviarla
+            if (screenshotPath) {
+                await message.channel.send({ files: [screenshotPath] });
+            }
 
             // Si hay un enlace de descarga, lo manejamos
             if (downloadLink) {
-                await descargarYEnviarPDF(downloadLink, message);
+                await manejarDocumento(downloadLink, message);
             }
 
         } catch (error) {
@@ -66,20 +84,22 @@ client.on('messageCreate', async (message) => {
 });
 
 // Función para buscar chasis
-async function buscarChasis(chassisNumber, message) {
-    const url = `https://dcli.com/track-a-chassis/?0-chassisType=chassis&searchChassis=${chassisNumber}`;
+async function buscar(searchType, searchValue, message) {
+    const url = searchType === 'chassis'
+        ? `https://dcli.com/track-a-chassis/?0-chassisType=chassis&searchChassis=${searchValue}`
+        : `https://dcli.com/track-a-chassis/?0-chassisType=plate&searchChassis=${searchValue}`;
 
     try {
-        console.log(`🔍 Buscando chasis con número: ${chassisNumber}`);
-        const { data } = await axios.get(url, { timeout: 15000 }); // Aumento el timeout a 15 segundos
+        console.log(`🔍 Buscando por ${searchType} con valor: ${searchValue}`);
+        const { data } = await axios.get(url, { timeout: 15000 });
         console.log("✅ Página obtenida con éxito");
 
         const $ = cheerio.load(data);
         const wrapper = $('.info-wrapper');
 
         if (wrapper.length === 0) {
-            console.log("❌ No se encontró el contenedor del chasis");
-            await message.reply('El chasis no fue encontrado.');
+            console.log("❌ No se encontró el contenedor del chasis o placa");
+            await message.reply('El chasis o placa no fue encontrado.');
             return;
         }
 
@@ -90,7 +110,7 @@ async function buscarChasis(chassisNumber, message) {
             return element.text().trim() || 'N/A';
         };
 
-        // Obtener toda la información del chasis primero
+        // Obtener toda la información
         resultText += `**Chassis Number**\n${obtenerDato('Chassis Number')}\n`;
         resultText += `**Chassis Size & Type**\n${obtenerDato('Chassis Size & Type')}\n`;
         resultText += `**Chassis Plate Number**\n${obtenerDato('Chassis Plate Number')}\n`;
@@ -98,6 +118,9 @@ async function buscarChasis(chassisNumber, message) {
         resultText += `**Region**\n${obtenerDato('Region')}\n`;
         resultText += `**Last FMCSA Date**\n${obtenerDato('Last FMCSA Date')}\n`;
         resultText += `**Last BIT Date**\n${obtenerDato('Last BIT Date')}\n`;
+
+        vehicleIdNumber = obtenerDato('Vehicle Id Number');
+        console.log(`🚗 Vehicle Id Number: ${vehicleIdNumber}`);
 
         // Buscando el enlace de descarga
         const downloadElement = wrapper.find('div.data-wrapper.download a.link');
@@ -116,143 +139,290 @@ async function buscarChasis(chassisNumber, message) {
 
         return { text: resultText };
     } catch (error) {
-        console.error("❌ Error en la función buscarChasis:", error);
+        console.error("❌ Error en la función buscar:", error);
         throw new Error('Hubo un error al realizar la búsqueda.');
+    }
+}
+
+// Función para generar un screenshot usando Puppeteer
+async function generarScreenshotChasis(searchType, searchValue, message) {
+    const url = searchType === 'chassis'
+        ? `https://dcli.com/track-a-chassis/?0-chassisType=chassis&searchChassis=${searchValue}`
+        : `https://dcli.com/track-a-chassis/?0-chassisType=plate&searchChassis=${searchValue}`;
+    const screenshotPath = path.join(__dirname, '/screenshoots/chassis_screenshot.jpg');
+    const maxRetries = 3;  // Número máximo de intentos en caso de error
+    let attempt = 0;  // Contador de intentos
+
+    while (attempt < maxRetries) {
+        try {
+            console.log(`📸 Generando screenshot para el ${searchType} : ${searchValue}`);
+            // Enviar mensaje de progreso
+            if (attempt > 0) {
+                await message.reply('No se ha podido hacer la captura, reintentando...');
+            }
+
+            const browser = await puppeteer.launch({ headless: true });
+            const page = await browser.newPage();
+
+            // Establecer el viewport a un tamaño más pequeño si es necesario para mejorar la carga
+            await page.setViewport({ width: 1920, height: 1390 });
+
+            // Incrementar el timeout a 30 segundos y usar 'networkidle0' para esperar hasta que la página esté completamente cargada
+            await page.goto(url, {
+                waitUntil: 'networkidle0',
+                timeout: 30000  // Timeout aumentado a 30 segundos
+            });
+
+            // Eliminar el footer antes de capturar el screenshot
+            await page.evaluate(() => {
+                const footer = document.querySelector('footer');
+                if (footer) footer.style.display = 'none';
+            });
+
+            // Capturar el screenshot en formato JPG
+            await page.screenshot({
+                path: screenshotPath,
+                type: 'jpeg',
+                quality: 100,
+                clip: {
+                    x: 0,
+                    y: 0,
+                    width: 1920,
+                    height: 1390
+                }
+            });
+
+            await browser.close();
+
+            console.log('📸 Screenshot capturado');
+            await message.reply('Screenshot generado con éxito. Enviando...');
+
+            return screenshotPath;
+        } catch (error) {
+            attempt++;
+            console.error(`❌ Error al generar el screenshot (Intento ${attempt}):`, error);
+
+            // Si se alcanzaron los intentos máximos, enviamos un mensaje final de error
+            if (attempt >= maxRetries) {
+                await message.reply('No se ha podido hacer la captura después de 3 intentos.');
+                throw new Error('Hubo un error al generar el screenshot.');
+            }
+
+            console.log(`🔁 Intentando nuevamente... (Intento ${attempt})`);
+        }
+    }
+}
+
+async function descargarPDF(vin) {
+    try {
+        // URL directa del archivo PHP que genera el PDF
+        const pdfUrl = `https://secure.tncountyclerk.com/dcli/static/api/201Form/201Form.php?vinNumber=${vin}`;
+
+        console.log(`🔍 Descargando PDF desde: ${pdfUrl}`);
+
+        // Realizar la solicitud GET con headers adecuados
+        const response = await axios.get(pdfUrl, {
+            responseType: 'arraybuffer', // Necesario para archivos binarios (PDF)
+            headers: {
+                'User-Agent': 'Mozilla/5.0', // Evita bloqueos por bots
+                'Accept': 'application/pdf', // Indica que queremos recibir un PDF
+                'Referer': 'https://secure.tncountyclerk.com/dcli/', // Evita bloqueos de CORS en algunos servidores
+            },
+        });
+
+        // Verificar que la respuesta sea un PDF
+        if (response.headers['content-type'] !== 'application/pdf') {
+            throw new Error('⚠️ La URL no devolvió un PDF válido. Puede requerir autenticación o parámetros adicionales.');
+        }
+
+        console.log('✅ PDF obtenido correctamente.');
+
+        // Crear la carpeta "pdfs" si no existe
+        const pdfDir = path.join(__dirname, 'pdfs');
+        if (!fs.existsSync(pdfDir)) {
+            fs.mkdirSync(pdfDir, { recursive: true });
+            console.log('📂 Carpeta "pdfs" creada.');
+        }
+
+        // Guardar el archivo PDF en la carpeta "pdfs"
+        const pdfPath = path.join(pdfDir, `trailer-lookup-${vin}.pdf`);
+        fs.writeFileSync(pdfPath, response.data);
+
+        console.log(`📄 PDF guardado exitosamente en: ${pdfPath}`);
+
+
+        // if (fs.existsSync(pdfPath)) {
+        //     fs.unlinkSync(pdfPath);
+        //     console.log('🗑️ Archivo temporal eliminado.');
+        // }
+        return pdfPath;
+    } catch (error) {
+        console.error('🚨 Ocurrió un error al descargar el PDF:', error.message);
+        return null;
     }
 }
 
 // Función para descargar y enviar PDF
 async function descargarYEnviarPDF(url, message) {
+    let filePath;
+
     try {
-        console.log(`📥 Descargando documento desde: ${url}`);
-
-        const response = await axios.get(url, { responseType: 'arraybuffer', timeout: 15000 }); // Timeout de 15 segundos
-
-        const contentType = response.headers['content-type'];
-        console.log(`📄 Tipo de contenido recibido: ${contentType}`);
-
-        const filePath = path.join(__dirname, 'chassis_document.pdf');
-
-        if (contentType === 'application/pdf') {
-            fs.writeFileSync(filePath, response.data);
+        // Si la URL es una ruta local (como 'C:\...')
+        if (url.startsWith('C:')) {
+            console.log(`📥 Archivo local detectado: ${url}`);
+            filePath = path.resolve(url);  // Resuelve la ruta local al sistema de archivos
         } else {
-            await convertirHTMLaPDF(url, filePath);
+            // Si es una URL HTTP(S)
+            console.log(`📥 Intentando descargar documento desde: ${url}`);
+            const response = await axios.get(url, { responseType: 'arraybuffer', timeout: 10000 });
+            const contentType = response.headers['content-type'];
+            console.log(`📄 Tipo de contenido recibido: ${contentType}`);
+
+            filePath = path.join(__dirname, 'chassis_document.pdf');
+            fs.writeFileSync(filePath, response.data); // Guardamos el archivo temporalmente
         }
 
-        console.log(`✅ Documento guardado en: ${filePath}`);
-
-        // Verificar el tamaño del archivo antes de enviarlo
+        // Verificar tamaño del archivo
         const stats = fs.statSync(filePath);
-        const fileSizeInMB = stats.size / (1024 * 1024); // en MB
+        const fileSizeInMB = stats.size / (1024 * 1024);
+        console.log(`📏 Tamaño del archivo: ${fileSizeInMB.toFixed(2)} MB`);
 
         if (fileSizeInMB > 8) {
-            console.log('El archivo es demasiado grande para enviarlo directamente. Dividiéndolo...');
-
-            // Dividir el archivo PDF en dos partes
+            console.log('⚠️ El archivo es demasiado grande, dividiéndolo en partes...');
+            
+            // Cargar el PDF original
             const pdfDoc = await PDFDocument.load(fs.readFileSync(filePath));
-
-            // Obtener el total de páginas
             const totalPages = pdfDoc.getPages().length;
 
-            // Dividir en dos partes
-            const half = Math.ceil(totalPages / 2);
+            // Calcular cuántas partes hacer (máximo 8MB por parte)
+            const parts = Math.ceil(fileSizeInMB / 8);
+            const pagesPerPart = Math.ceil(totalPages / parts);
 
-            // Crear el primer documento PDF con la primera mitad
-            const part1 = await PDFDocument.create();
-            const firstHalfPages = await part1.copyPages(pdfDoc, Array.from({ length: half }, (_, i) => i));
-            firstHalfPages.forEach(page => part1.addPage(page));
+            const partPaths = [];
 
-            // Crear el segundo documento PDF con la segunda mitad
-            const part2 = await PDFDocument.create();
-            const secondHalfPages = await part2.copyPages(pdfDoc, Array.from({ length: totalPages - half }, (_, i) => half + i));
-            secondHalfPages.forEach(page => part2.addPage(page));
+            // Dividir el PDF en partes
+            for (let i = 0; i < parts; i++) {
+                const startPage = i * pagesPerPart;
+                const endPage = Math.min(startPage + pagesPerPart, totalPages);
 
-            // Guardar las dos partes como archivos temporales
-            const part1Path = path.join(__dirname, 'chassis_document_part1.pdf');
-            const part2Path = path.join(__dirname, 'chassis_document_part2.pdf');
+                // Crear nuevo PDF para esta parte
+                const partPdf = await PDFDocument.create();
+                const pages = await partPdf.copyPages(pdfDoc, Array.from({ length: endPage - startPage }, (_, idx) => startPage + idx));
+                pages.forEach(page => partPdf.addPage(page));
 
-            const part1Bytes = await part1.save();
-            const part2Bytes = await part2.save();
+                // Guardar la parte en disco
+                const partPath = path.join(__dirname, `chassis_document_part${i + 1}.pdf`);
+                fs.writeFileSync(partPath, await partPdf.save());
+                partPaths.push(partPath);
+            }
 
-            fs.writeFileSync(part1Path, part1Bytes);
-            fs.writeFileSync(part2Path, part2Bytes);
+            // Enviar las partes
+            for (const partPath of partPaths) {
+                const attachment = new AttachmentBuilder(partPath);
+                await message.channel.send({ files: [attachment] });
+                fs.unlinkSync(partPath); // Eliminar la parte después de enviarla
+            }
 
-            // Enviar las dos partes como archivos adjuntos
-            await message.channel.send({ files: [part1Path] });
-            await message.channel.send({ files: [part2Path] });
-
-            console.log('📤 Documentos enviados al canal');
-
-            // Eliminar los archivos temporales
-            fs.unlinkSync(part1Path);
-            fs.unlinkSync(part2Path);
-            console.log('🗑️ Archivos temporales eliminados');
+            console.log('📤 Todas las partes del documento han sido enviadas.');
         } else {
             // Si el archivo no es demasiado grande, enviarlo directamente
             const attachment = new AttachmentBuilder(filePath);
             await message.channel.send({ files: [attachment] });
-
-            console.log('📤 Documento enviado al canal');
+            console.log('📤 Documento enviado.');
         }
 
-        // Eliminar el archivo temporal después de enviarlo
-        fs.unlinkSync(filePath);
-        console.log('🗑️ Archivo temporal eliminado');
+        // Eliminar el archivo temporal si existe
+        if (fs.existsSync(filePath)) {
+            fs.unlinkSync(filePath);
+            console.log('🗑️ Archivo temporal eliminado.');
+        }
     } catch (error) {
-        console.error('❌ Error al descargar o enviar el PDF:', error);
-        message.reply('Hubo un error al descargar o enviar el documento.');
+        // Manejo de errores de axios
+        if (error.response) {
+            // La solicitud fue realizada y el servidor respondió con un código de error
+            console.error(`❌ Error de respuesta: ${error.response.status} - ${error.response.statusText}`);
+        } else if (error.request) {
+            // La solicitud fue realizada pero no hubo respuesta
+            console.error('❌ No se recibió respuesta del servidor:', error.request);
+        } else {
+            // Ocurrió un error al configurar la solicitud
+            console.error('❌ Error en la configuración de la solicitud:', error.message);
+        }
+
+        // Enviar mensaje de error al usuario
+        message.reply('Hubo un error al descargar o enviar el documento. Intenta nuevamente más tarde.');
     }
 }
-
-// Función para generar un screenshot usando Puppeteer
-async function generarScreenshotChasis(chassisNumber, message) {
-    const url = `https://dcli.com/track-a-chassis/?0-chassisType=chassis&searchChassis=${chassisNumber}`;
-    const screenshotPath = path.join(__dirname, 'chassis_screenshot.jpg'); // Cambiar extensión a .jpg
-
+// Función para manejar la descarga y conversión del documento
+async function manejarDocumento(url, message) {
     try {
-        console.log(`📸 Generando screenshot para el chasis: ${chassisNumber}`);
-        await message.reply('Generando el screenshot de la página...');
+        console.log(`📥 Intentando obtener documento desde: ${url}`);
 
-        const browser = await puppeteer.launch({ headless: true });
-        const page = await browser.newPage();
+        // Realizar la solicitud al archivo .php con respuesta binaria
+        const response = await axios.get(url, { responseType: 'arraybuffer', timeout: 15000 });
 
-        // Establecer el viewport a un tamaño más pequeño si es necesario para mejorar la carga
-        await page.setViewport({ width: 1920, height: 1390 });  // Ajustar tamaño del viewport si es necesario
+        // Verificar si la respuesta es un PDF
+        const contentType = response.headers['content-type'] || '';
+        if (contentType.includes('application/pdf')) {
+            console.log('✅ El archivo obtenido es un PDF válido.');
 
-        // Incrementar el timeout a 15 segundos y usar 'networkidle0' para esperar hasta que la página esté completamente cargada
-        await page.goto(url, {
-            waitUntil: 'networkidle0',  // Esperar hasta que no haya más conexiones de red
-            timeout: 30000  // Aumentamos el timeout a 30 segundos si el sitio es lento
-        });
+            // Guardar el PDF y enviarlo
+            const pdfPath = path.join(__dirname, 'pdfs', `chassis_document.pdf`);
+            fs.writeFileSync(pdfPath, response.data);
 
-        // Eliminar el footer antes de capturar el screenshot
-        await page.evaluate(() => {
-            const footer = document.querySelector('footer');
-            if (footer) footer.style.display = 'none';
-        });
+            // Verificar tamaño del archivo
+            const stats = fs.statSync(pdfPath);
+            const fileSizeInMB = stats.size / (1024 * 1024);
+            console.log(`📏 Tamaño del archivo: ${fileSizeInMB.toFixed(2)} MB`);
 
-        // Capturar el screenshot en formato JPG
-        await page.screenshot({
-            path: screenshotPath,
-            type: 'jpeg',  // Cambiar tipo de imagen a jpeg
-            quality: 100,    // Calidad de la imagen JPG (0-100), puedes ajustarlo según lo necesites
-            clip: {
-                x: 0,
-                y: 0,
-                width: 1920,
-                height: 1390
+            if (fileSizeInMB > 8) {
+                console.log('⚠️ El archivo es demasiado grande, dividiéndolo en partes...');
+                await descargarYEnviarPDF(pdfPath, message);
+            } else {
+                // Si el archivo no es demasiado grande, enviarlo directamente
+                const attachment = new AttachmentBuilder(pdfPath);
+                await message.channel.send({ files: [attachment] });
+                console.log('📤 Documento enviado.');
             }
-        });
 
-        await browser.close();
+            return;
+        }
 
-        console.log('📸 Screenshot capturado');
-        await message.reply('Screenshot generado con éxito. Enviando...');
+        // Si no es PDF, tratar de analizar el HTML
+        console.log('⚠️ No es un PDF directo. Intentando extraer un enlace de la página...');
+        const html = response.data.toString();
+        const $ = cheerio.load(html);
 
-        return screenshotPath;
+        // Buscar enlace a PDF dentro del HTML
+        let pdfLink = $('a[href$=".pdf"]').attr('href');
+
+        // Si no hay enlace, intentar buscar dentro de un iframe o embed
+        if (!pdfLink) {
+            pdfLink = $('iframe[src$=".pdf"]').attr('src') || $('embed[src$=".pdf"]').attr('src');
+        }
+
+        if (pdfLink) {
+            console.log(`🔗 Enlace de PDF encontrado en la página: ${pdfLink}`);
+
+            // Llamar a la función para descargar el PDF
+            await descargarYEnviarPDF(pdfLink, message);
+        } else {
+            console.log('⚠️ No se encontró un enlace a un PDF en el documento PHP.');
+            await message.reply('El archivo esta en formato PHP, intentando convertir...');
+
+            // Intentar descargar el PDF manualmente con el VIN
+            const vin = vehicleIdNumber;
+            const pdfPath = await descargarPDF(vin);
+
+            if (pdfPath) {
+                await message.channel.send({ files: [pdfPath] });
+            } else {
+                await message.reply('❌ No se pudo generar el archivo PDF.');
+            }
+        }
     } catch (error) {
-        console.error('❌ Error al generar el screenshot:', error);
-        throw new Error('Hubo un error al generar el screenshot.');
+        console.error('❌ Error al manejar el archivo .php:', error);
+        message.reply('Hubo un error al procesar el documento.');
     }
 }
 
