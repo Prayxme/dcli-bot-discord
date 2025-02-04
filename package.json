@@ -19,6 +19,7 @@
     "pdf2image": "^1.2.3",
     "pdfjs-dist": "^4.10.38",
     "pdfkit": "^0.16.0",
-    "puppeteer": "^24.1.1"
+    "puppeteer": "^24.1.1",
+    "puppeteer-core": "^24.1.1"
   }
 }

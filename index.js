@@ -36,9 +36,11 @@ client.once('ready', () => {
 client.on('messageCreate', async (message) => {
     if (message.author.bot) return;
 
-    if (message.content.startsWith('!chassis') || message.content.startsWith('!plate')) {
+    let msgContent = message.content.toLowerCase();
+
+    if (msgContent.startsWith('!chassis') || msgContent.startsWith('!plate')) {
         const args = message.content.split(' '); // Obtener los argumentos del mensaje
-        const searchType = message.content.startsWith('!chassis') ? 'chassis' : 'plate'; // Determinar si es chassis o plate
+        const searchType = msgContent.startsWith('!chassis') ? 'chassis' : 'plate'; // Determinar si es chassis o plate
         const searchValue = args[1]; // El valor de búsqueda (número de chasis o placa)
 
         if (!searchValue) {
@@ -214,52 +216,63 @@ async function generarScreenshotChasis(searchType, searchValue, message) {
 }
 
 async function descargarPDF(vin) {
-    try {
-        // URL directa del archivo PHP que genera el PDF
-        const pdfUrl = `https://secure.tncountyclerk.com/dcli/static/api/201Form/201Form.php?vinNumber=${vin}`;
 
-        console.log(`🔍 Descargando PDF desde: ${pdfUrl}`);
+    const axiosRetriesGet = 3;
+    let intentos = 0;
 
-        // Realizar la solicitud GET con headers adecuados
-        const response = await axios.get(pdfUrl, {
-            responseType: 'arraybuffer', // Necesario para archivos binarios (PDF)
-            headers: {
-                'User-Agent': 'Mozilla/5.0', // Evita bloqueos por bots
-                'Accept': 'application/pdf', // Indica que queremos recibir un PDF
-                'Referer': 'https://secure.tncountyclerk.com/dcli/', // Evita bloqueos de CORS en algunos servidores
-            },
-        });
+    while (intentos < axiosRetriesGet) {
+        
+        try {
+            // URL directa del archivo PHP que genera el PDF
+            const pdfUrl = `https://secure.tncountyclerk.com/dcli/static/api/201Form/201Form.php?vinNumber=${vin}`;
+            console.log(`🔍 Descargando PDF desde: ${pdfUrl}`);
+            
+    
+            // Realizar la solicitud GET con headers adecuados
+            const response = await axios.get(pdfUrl, {
+                responseType: 'arraybuffer', // Necesario para archivos binarios (PDF)
+                headers: {
+                    'User-Agent': 'Mozilla/5.0', // Evita bloqueos por bots
+                    'Accept': 'application/pdf', // Indica que queremos recibir un PDF
+                    'Referer': 'https://secure.tncountyclerk.com/dcli/', // Evita bloqueos de CORS en algunos servidores
+                },
+            });
+    
+            // Verificar que la respuesta sea un PDF
+            if (response.headers['content-type'] !== 'application/pdf') {
+                throw new Error('⚠️ La URL no devolvió un PDF válido. Puede requerir autenticación o parámetros adicionales.');
+            }
+    
+            console.log('✅ PDF obtenido correctamente.');
+    
+            // Crear la carpeta "pdfs" si no existe
+            const pdfDir = path.join(__dirname, 'pdfs');
+            if (!fs.existsSync(pdfDir)) {
+                fs.mkdirSync(pdfDir, { recursive: true });
+                console.log('📂 Carpeta "pdfs" creada.');
+            }
+    
+            // Guardar el archivo PDF en la carpeta "pdfs"
+            const pdfPath = path.join(pdfDir, `trailer-lookup-${vin}.pdf`);
+            fs.writeFileSync(pdfPath, response.data);
+    
+            console.log(`📄 PDF guardado exitosamente en: ${pdfPath}`);
+    
+            return pdfPath;
 
-        // Verificar que la respuesta sea un PDF
-        if (response.headers['content-type'] !== 'application/pdf') {
-            throw new Error('⚠️ La URL no devolvió un PDF válido. Puede requerir autenticación o parámetros adicionales.');
+        } catch (error) {
+            intentos++;
+            console.error(`❌ Error al descargar el PDF (Intento ${intentos}):`, error);
+
+            if (intentos >= axiosRetriesGet) {
+                console.error('❌ Se alcanzó el número máximo de intentos.');
+                return null;
+                
+            }
+            console.error('🚨 Ocurrió un error al descargar el PDF:', error.message);
         }
-
-        console.log('✅ PDF obtenido correctamente.');
-
-        // Crear la carpeta "pdfs" si no existe
-        const pdfDir = path.join(__dirname, 'pdfs');
-        if (!fs.existsSync(pdfDir)) {
-            fs.mkdirSync(pdfDir, { recursive: true });
-            console.log('📂 Carpeta "pdfs" creada.');
-        }
-
-        // Guardar el archivo PDF en la carpeta "pdfs"
-        const pdfPath = path.join(pdfDir, `trailer-lookup-${vin}.pdf`);
-        fs.writeFileSync(pdfPath, response.data);
-
-        console.log(`📄 PDF guardado exitosamente en: ${pdfPath}`);
-
-
-        // if (fs.existsSync(pdfPath)) {
-        //     fs.unlinkSync(pdfPath);
-        //     console.log('🗑️ Archivo temporal eliminado.');
-        // }
-        return pdfPath;
-    } catch (error) {
-        console.error('🚨 Ocurrió un error al descargar el PDF:', error.message);
-        return null;
     }
+
 }
 
 // Función para descargar y enviar PDF
