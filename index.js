@@ -1,4 +1,4 @@
-const { Client, GatewayIntentBits, AttachmentBuilder } = require('discord.js');
+const { Client, GatewayIntentBits, AttachmentBuilder, REST, Routes, SlashCommandBuilder } = require('discord.js');
 require('dotenv').config();
 const axios = require('axios');
 const axiosRetry = require('axios-retry').default;
@@ -27,127 +27,321 @@ const client = new Client({
 });
 
 const DISCORD_TOKEN = process.env.DISCORD_TOKEN;
+const CLIENT_ID = process.env.CLIENT_ID; 
+const GUILD_ID = process.env.GUILD_ID;  
 
-client.once('ready', () => {
+async function clearCommands() {
+    const rest = new REST({ version: '10' }).setToken(DISCORD_TOKEN);
+    try {
+        console.log('🚨 Eliminando comandos antiguos...');
+        await rest.put(Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID), { body: [] });
+        console.log('✅ Comandos eliminados correctamente.');
+    } catch (error) {
+        console.error('❌ Error al eliminar comandos:', error);
+    }
+}
+
+clearCommands();
+
+// const rest = new REST({ version: '10' }).setToken(DISCORD_TOKEN);
+
+// // //borrar comandos registrados en el bot
+// async function deleteGuildCommands() {
+//     try {
+//         console.log('⏳ Obteniendo comandos registrados en el servidor...');
+
+//         const commands = await rest.get(Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID));
+
+//         for (const command of commands) {
+//             await rest.delete(Routes.applicationGuildCommand(CLIENT_ID, GUILD_ID, command.id));
+//             console.log(`✅ Comando eliminado: ${command.name}`);
+//         }
+
+//         console.log('🎯 Todos los comandos del servidor han sido eliminados.');
+//     } catch (error) {
+//         console.error('❌ Error al eliminar comandos:', error);
+//     }
+// }
+
+// deleteGuildCommands();
+
+
+
+client.once('ready', async () => {
   console.log(`Bot conectado como ${client.user.tag}`);
+    registerCommands();
+    
+    
 });
 
+
+async function registerCommands() {
+
+    // Registrar comandos de barra (slash)
+    const commands = [
+        {
+            name: 'chassis',
+            description: 'Busca información de un chassis',
+            options: [
+                {
+                    name: 'numero',
+                    type: 3, // STRING
+                    description: 'Número de chassis a buscar',
+                    required: true,
+                },
+            ],
+        },
+        {
+            name: 'plate',
+            description: 'Busca información de una placa',
+            options: [
+                {
+                    name: 'numero',
+                    type: 3, // STRING
+                    description: 'Número de placa a buscar',
+                    required: true,
+                },
+            ],
+        },
+    ];
+
+    const rest = new REST({ version: '10' }).setToken(DISCORD_TOKEN);
+
+    try {
+        console.log('⏳ Registrando comandos de barra...');
+        await rest.put(Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID), { body: commands });
+        console.log('✅ Comandos registrados correctamente.');
+    } catch (error) {
+        console.error('❌ Error al registrar comandos:', error);
+    }
+}
+
 // Función principal para manejar el comando !buscar
-client.on('messageCreate', async (message) => {
-    if (message.author.bot) return;
+// client.on('messageCreate', async (message) => {
+//     if (message.author.bot) return;
 
-    let msgContent = message.content.toLowerCase();
+//     let msgContent = message.content.toLowerCase();
 
-    if (msgContent.startsWith('!chassis') || msgContent.startsWith('!plate')) {
-        const args = message.content.split(' '); // Obtener los argumentos del mensaje
-        const searchType = msgContent.startsWith('!chassis') ? 'chassis' : 'plate'; // Determinar si es chassis o plate
-        const searchValue = args[1]; // El valor de búsqueda (número de chasis o placa)
+//     if (msgContent.startsWith('/chassis') || msgContent.startsWith('/plate')) {
+//         const args = message.content.split(' '); // Obtener los argumentos del mensaje
+//         const searchType = msgContent.startsWith('/chassis') ? 'chassis' : 'plate'; // Determinar si es chassis o plate
+//         const searchValue = args[1]; // El valor de búsqueda (número de chasis o placa)
 
-        if (!searchValue) {
-            message.reply('Por favor, proporciona un número de chasis o placa después de "!buscar".');
-            return;
-        }
+//         if (!searchValue) {
+//             message.reply('Por favor, proporciona un número de chasis o placa después de "!buscar".');
+//             return;
+//         }
 
-        if (!['chassis', 'plate'].includes(searchType)) {
-            message.reply('Por favor, utiliza "chassis" o "plate" para especificar el tipo de búsqueda.');
-            return;
-        }
+//         if (!['chassis', 'plate'].includes(searchType)) {
+//             message.reply('Por favor, utiliza "chassis" o "plate" para especificar el tipo de búsqueda.');
+//             return;
+//         }
 
+//         try {
+//             await message.reply('Procesando la solicitud...');
+
+//             const { text, downloadLink } = await buscar(searchType, searchValue, message);
+
+//             // Intentar generar el screenshot con reintentos
+//             let screenshotPath = null;
+
+//             try {
+//                 screenshotPath = await generarScreenshotChasis(searchType, searchValue, message);
+//             } catch (error) {
+//                 await message.reply('No se pudo hacer la captura del chassis.');
+//                 return;
+//             }
+
+//             // Si la captura se generó correctamente, enviarla
+//             if (screenshotPath) {
+//                 await message.channel.send({ files: [screenshotPath] });
+//             }
+
+//             // Si hay un enlace de descarga, lo manejamos
+//             if (downloadLink) {
+//                 await manejarDocumento(downloadLink, message);
+//             }
+
+//         } catch (error) {
+//             console.error(error);
+//             message.reply('Hubo un error al realizar la búsqueda.');
+//         }
+//     }
+// });
+
+// client.on('messageCreate', async (message) => {
+//     if (message.author.bot) return;
+
+//     let msgContent = message.content.toLowerCase();
+
+//     // Verificar si el mensaje es un comando de barra
+//     if (msgContent.startsWith('/chassis') || msgContent.startsWith('/plate')) {
+//         const args = message.content.split(' ');
+//         const searchType = msgContent.startsWith('/chassis') ? 'chassis' : 'plate';
+//         const searchValue = args[1];
+
+//         if (!searchValue) {
+//             await message.reply('❗ Por favor, proporciona un número de chasis o placa después del comando.');
+//             return;
+//         }
+
+//         if (!['chassis', 'plate'].includes(searchType)) {
+//             await message.reply('⚠️ Por favor, utiliza `/chassis` o `/plate` para especificar el tipo de búsqueda.');
+//             return;
+//         }
+
+//         try {
+//             await message.reply('🔍 Procesando la solicitud...');
+
+//             // Obtener la información básica del chasis o placa
+//             const { text, downloadLink } = await buscar(searchType, searchValue, message);
+
+//             // Intentar generar el screenshot con manejo de errores
+//             let screenshotPath = null;
+
+//             try {
+//                 screenshotPath = await generarScreenshotChasis(searchType, searchValue, message);
+//             } catch (error) {
+//                 console.error('❌ Error al generar el screenshot:', error);
+//                 await message.reply('⚠️ No se pudo generar la captura del chasis.');
+//                 return;
+//             }
+
+//             // Enviar el screenshot si fue generado correctamente
+//             if (screenshotPath) {
+//                 await message.channel.send({ files: [screenshotPath] });
+//             }
+
+//             // Si hay un enlace de descarga, manejarlo
+//             if (downloadLink) {
+//                 await manejarDocumento(downloadLink, message);
+//             }
+
+//         } catch (error) {
+//             console.error('❌ Error al procesar la solicitud:', error);
+//             await message.reply('🚨 Hubo un error al realizar la búsqueda. Inténtalo de nuevo más tarde.');
+//         }
+//     }
+// });
+
+client.on('interactionCreate', async (interaction) => {
+    if (!interaction.isCommand()) return;
+
+    const { commandName, options } = interaction;
+    const searchValue = options.getString('numero');
+
+    try {
+        await interaction.deferReply(); // Deferir la respuesta para evitar el timeout
+
+        await interaction.editReply('🔍 Procesando la solicitud...');
+
+        const searchType = commandName === 'chassis' ? 'chassis' : 'plate';
+        const { text, downloadLink } = await buscar(searchType, searchValue, interaction);
+
+        // Enviar la información del chasis o placa
+        // await interaction.followUp({ content: text });
+
+        // Intentar generar el screenshot
         try {
-            await message.reply('Procesando la solicitud...');
-
-            const { text, downloadLink } = await buscar(searchType, searchValue, message);
-
-            // Intentar generar el screenshot con reintentos
-            let screenshotPath = null;
-
-            try {
-                screenshotPath = await generarScreenshotChasis(searchType, searchValue, message);
-            } catch (error) {
-                await message.reply('No se pudo hacer la captura del chassis.');
-                return;
-            }
-
-            // Si la captura se generó correctamente, enviarla
-            if (screenshotPath) {
-                await message.channel.send({ files: [screenshotPath] });
-            }
-
-            // Si hay un enlace de descarga, lo manejamos
-            if (downloadLink) {
-                await manejarDocumento(downloadLink, message);
-            }
-
+            const screenshotPath = await generarScreenshotChasis(searchType, searchValue, interaction);
+            await interaction.followUp({ files: [screenshotPath] });
         } catch (error) {
-            console.error(error);
-            message.reply('Hubo un error al realizar la búsqueda.');
+            console.error('❌ Error al generar el screenshot:', error);
+            await interaction.followUp('⚠️ No se pudo generar la captura del chasis.');
         }
+
+        // Si hay un enlace de descarga, manejarlo
+        if (downloadLink) {
+            await manejarDocumento(downloadLink, interaction);
+        }
+
+    } catch (error) {
+        console.error('❌ Error al procesar la solicitud:', error);
+        await interaction.editReply('🚨 Hubo un error al realizar la búsqueda.');
     }
 });
 
+
 // Función para buscar chasis
-async function buscar(searchType, searchValue, message) {
+async function buscar(searchType, searchValue, interaction) {
     const url = searchType === 'chassis'
         ? `https://dcli.com/track-a-chassis/?0-chassisType=chassis&searchChassis=${searchValue}`
         : `https://dcli.com/track-a-chassis/?0-chassisType=plate&searchChassis=${searchValue}`;
 
-    try {
-        console.log(`🔍 Buscando por ${searchType} con valor: ${searchValue}`);
-        const { data } = await axios.get(url, { timeout: 15000 });
-        console.log("✅ Página obtenida con éxito");
+    const maxRetries = 3;  // Número máximo de reintentos
+    let attempt = 0;       // Contador de intentos
 
-        const $ = cheerio.load(data);
-        const wrapper = $('.info-wrapper');
+    while (attempt < maxRetries) {
+        try {
+            console.log(`🔍 Buscando por ${searchType} con valor: ${searchValue} (Intento ${attempt + 1})`);
 
-        if (wrapper.length === 0) {
-            console.log("❌ No se encontró el contenedor del chasis o placa");
-            await message.reply('El chasis o placa no fue encontrado.');
-            return;
+            const { data } = await axios.get(url, { timeout: 15000 });
+            console.log("✅ Página obtenida con éxito");
+
+            const $ = cheerio.load(data);
+            const wrapper = $('.info-wrapper');
+
+            if (wrapper.length === 0) {
+                console.log("❌ No se encontró el contenedor del chasis o placa");
+                await interaction.followUp('El chasis o placa no fue encontrado.');
+                return;
+            }
+
+            let resultText = `**PHYSICAL INFORMATION**\n`;
+
+            const obtenerDato = (label) => {
+                const element = wrapper.find(`div.data-wrapper:has(div:contains("${label}")) div:last-child`);
+                return element.text().trim() || 'N/A';
+            };
+
+            // Obtener toda la información
+            resultText += `**Chassis Number**\n${obtenerDato('Chassis Number')}\n`;
+            resultText += `**Chassis Size & Type**\n${obtenerDato('Chassis Size & Type')}\n`;
+            resultText += `**Chassis Plate Number**\n${obtenerDato('Chassis Plate Number')}\n`;
+            resultText += `**Vehicle Id Number**\n${obtenerDato('Vehicle Id Number')}\n`;
+            resultText += `**Region**\n${obtenerDato('Region')}\n`;
+            resultText += `**Last FMCSA Date**\n${obtenerDato('Last FMCSA Date')}\n`;
+            resultText += `**Last BIT Date**\n${obtenerDato('Last BIT Date')}\n`;
+
+            vehicleIdNumber = obtenerDato('Vehicle Id Number');
+            console.log(`🚗 Vehicle Id Number: ${vehicleIdNumber}`);
+
+            // Buscando el enlace de descarga
+            const downloadElement = wrapper.find('div.data-wrapper.download a.link');
+            const downloadLink = downloadElement.attr('href') ? downloadElement.attr('href').trim() : null;
+
+            console.log(`🔗 Enlace extraído de la página: ${downloadLink || 'No encontrado'}`);
+
+            // Enviar toda la información de una vez
+            await interaction.followUp(resultText);
+
+            // Si hay un enlace de descarga, lo enviamos también
+            if (downloadLink) {
+                await interaction.followUp(`📄 **Descargar documento:** ${downloadLink}`);
+                return { text: resultText, downloadLink };
+            }
+
+            return { text: resultText };
+
+        } catch (error) {
+            attempt++;
+            console.error(`❌ Error en la función buscar (Intento ${attempt}):`, error.message);
+
+            if (attempt < maxRetries) {
+                console.log('🔁 Reintentando...');
+                await new Promise(res => setTimeout(res, 3000)); // Esperar 3 segundos antes de reintentar
+            } else {
+                console.log('🚨 Se alcanzó el número máximo de intentos.');
+                await interaction.followUp('❌ No se pudo completar la búsqueda después de varios intentos.');
+                throw new Error('Hubo un error al realizar la búsqueda después de varios intentos.');
+            }
         }
-
-        let resultText = `**PHYSICAL INFORMATION**\n`;
-
-        const obtenerDato = (label) => {
-            const element = wrapper.find(`div.data-wrapper:has(div:contains("${label}")) div:last-child`);
-            return element.text().trim() || 'N/A';
-        };
-
-        // Obtener toda la información
-        resultText += `**Chassis Number**\n${obtenerDato('Chassis Number')}\n`;
-        resultText += `**Chassis Size & Type**\n${obtenerDato('Chassis Size & Type')}\n`;
-        resultText += `**Chassis Plate Number**\n${obtenerDato('Chassis Plate Number')}\n`;
-        resultText += `**Vehicle Id Number**\n${obtenerDato('Vehicle Id Number')}\n`;
-        resultText += `**Region**\n${obtenerDato('Region')}\n`;
-        resultText += `**Last FMCSA Date**\n${obtenerDato('Last FMCSA Date')}\n`;
-        resultText += `**Last BIT Date**\n${obtenerDato('Last BIT Date')}\n`;
-
-        vehicleIdNumber = obtenerDato('Vehicle Id Number');
-        console.log(`🚗 Vehicle Id Number: ${vehicleIdNumber}`);
-
-        // Buscando el enlace de descarga
-        const downloadElement = wrapper.find('div.data-wrapper.download a.link');
-        const downloadLink = downloadElement.attr('href') ? downloadElement.attr('href').trim() : null;
-
-        console.log(`🔗 Enlace extraído de la página: ${downloadLink || 'No encontrado'}`);
-
-        // Enviar toda la información de una vez
-        await message.reply(resultText);
-
-        // Si hay un enlace de descarga, lo enviamos también
-        if (downloadLink) {
-            await message.reply(`📄 **Descargar documento:** ${downloadLink}`);
-            return { text: resultText, downloadLink };
-        }
-
-        return { text: resultText };
-    } catch (error) {
-        console.error("❌ Error en la función buscar:", error);
-        throw new Error('Hubo un error al realizar la búsqueda.');
     }
 }
 
+
 // Función para generar un screenshot usando Puppeteer
-async function generarScreenshotChasis(searchType, searchValue, message) {
+async function generarScreenshotChasis(searchType, searchValue, interaction) {
     const url = searchType === 'chassis'
         ? `https://dcli.com/track-a-chassis/?0-chassisType=chassis&searchChassis=${searchValue}`
         : `https://dcli.com/track-a-chassis/?0-chassisType=plate&searchChassis=${searchValue}`;
@@ -160,7 +354,7 @@ async function generarScreenshotChasis(searchType, searchValue, message) {
             console.log(`📸 Generando screenshot para el ${searchType} : ${searchValue}`);
             // Enviar mensaje de progreso
             if (attempt > 0) {
-                await message.reply('No se ha podido hacer la captura, reintentando...');
+                await interaction.followUp('No se ha podido hacer la captura, reintentando...');
             }
 
             const browser = await puppeteer.launch({ headless: true });
@@ -197,7 +391,7 @@ async function generarScreenshotChasis(searchType, searchValue, message) {
             await browser.close();
 
             console.log('📸 Screenshot capturado');
-            await message.reply('Screenshot generado con éxito. Enviando...');
+            await interaction.followUp('Screenshot generado con éxito. Enviando...');
 
             return screenshotPath;
         } catch (error) {
@@ -206,7 +400,7 @@ async function generarScreenshotChasis(searchType, searchValue, message) {
 
             // Si se alcanzaron los intentos máximos, enviamos un mensaje final de error
             if (attempt >= maxRetries) {
-                await message.reply('No se ha podido hacer la captura después de 3 intentos.');
+                await interaction.followUp('No se ha podido hacer la captura después de 3 intentos.');
                 throw new Error('Hubo un error al generar el screenshot.');
             }
 
@@ -363,7 +557,7 @@ async function descargarYEnviarPDF(url, message) {
         }
 
         // Enviar mensaje de error al usuario
-        message.reply('Hubo un error al descargar o enviar el documento. Intenta nuevamente más tarde.');
+        message.followUp('Hubo un error al descargar o enviar el documento. Intenta nuevamente más tarde.');
     }
 }
 // Función para manejar la descarga y conversión del documento
@@ -421,7 +615,7 @@ async function manejarDocumento(url, message) {
             await descargarYEnviarPDF(pdfLink, message);
         } else {
             console.log('⚠️ No se encontró un enlace a un PDF en el documento PHP.');
-            await message.reply('El archivo esta en formato PHP, intentando convertir...');
+            await message.followUp('El archivo esta en formato PHP, intentando convertir...');
 
             // Intentar descargar el PDF manualmente con el VIN
             const vin = vehicleIdNumber;
@@ -430,12 +624,12 @@ async function manejarDocumento(url, message) {
             if (pdfPath) {
                 await message.channel.send({ files: [pdfPath] });
             } else {
-                await message.reply('❌ No se pudo generar el archivo PDF.');
+                await message.followUp('❌ No se pudo generar el archivo PDF.');
             }
         }
     } catch (error) {
         console.error('❌ Error al manejar el archivo .php:', error);
-        message.reply('Hubo un error al procesar el documento.');
+        message.followUp('Hubo un error al procesar el documento.');
     }
 }
 
