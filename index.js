@@ -15,20 +15,20 @@ let vehicleIdNumber
 axiosRetry(axios, {
     retries: 3,
     retryDelay: axiosRetry.exponentialDelay,
-  });
-  
+});
+
 
 const client = new Client({
-  intents: [
-    GatewayIntentBits.Guilds,
-    GatewayIntentBits.GuildMessages,
-    GatewayIntentBits.MessageContent,
-  ],
+    intents: [
+        GatewayIntentBits.Guilds,
+        GatewayIntentBits.GuildMessages,
+        GatewayIntentBits.MessageContent,
+    ],
 });
 
 const DISCORD_TOKEN = process.env.DISCORD_TOKEN;
-const CLIENT_ID = process.env.CLIENT_ID; 
-const GUILD_ID = process.env.GUILD_ID;  
+const CLIENT_ID = process.env.CLIENT_ID;
+const GUILD_ID = process.env.GUILD_ID;
 
 async function clearCommands() {
     const rest = new REST({ version: '10' }).setToken(DISCORD_TOKEN);
@@ -68,10 +68,28 @@ clearCommands();
 
 
 client.once('ready', async () => {
-  console.log(`Bot conectado como ${client.user.tag}`);
-    registerCommands();
-    
-    
+    console.log(`Bot conectado como ${client.user.tag}`);
+    await registerCommands();
+
+    const guild = client.guilds.cache.get(GUILD_ID);
+
+    if (guild) {
+        const channel = guild.channels.cache.find(ch => ch.name === 'general' && ch.isTextBased()); //busca el canal general por el nombre
+        // const channel = guild.channels.cache.find('1332027926098739234'); // ID del canal general
+
+        if (channel) {
+            channel.send('@everyone 🟢🚀 **Estamos de vuelta!!!** El bot está activo y listo para ayudar. 🔍');
+            console.log('✅ Mensaje de activación enviado correctamente.');
+        }else{
+            console.error('❌ No se pudo encontrar el canal "general".');
+        }
+
+    } else {
+        console.error('❌ No se pudo conectar al servidor.');
+        
+    }
+
+
 });
 
 
@@ -345,7 +363,15 @@ async function generarScreenshotChasis(searchType, searchValue, interaction) {
     const url = searchType === 'chassis'
         ? `https://dcli.com/track-a-chassis/?0-chassisType=chassis&searchChassis=${searchValue}`
         : `https://dcli.com/track-a-chassis/?0-chassisType=plate&searchChassis=${searchValue}`;
-    const screenshotPath = path.join(__dirname, '/screenshoots/chassis_screenshot.jpg');
+
+    const screenDir = path.join(__dirname, 'screenshoots');
+    if (!fs.existsSync(screenDir)) {
+        fs.mkdirSync(screenDir, { recursive: true });
+        console.log('📂 Carpeta "screenshoots" creada.');
+    }
+
+
+    const screenshotPath = path.join(screenDir, 'chassis_screenshot.jpg');
     const maxRetries = 3;  // Número máximo de intentos en caso de error
     let attempt = 0;  // Contador de intentos
 
@@ -415,13 +441,13 @@ async function descargarPDF(vin) {
     let intentos = 0;
 
     while (intentos < axiosRetriesGet) {
-        
+
         try {
             // URL directa del archivo PHP que genera el PDF
             const pdfUrl = `https://secure.tncountyclerk.com/dcli/static/api/201Form/201Form.php?vinNumber=${vin}`;
             console.log(`🔍 Descargando PDF desde: ${pdfUrl}`);
-            
-    
+
+
             // Realizar la solicitud GET con headers adecuados
             const response = await axios.get(pdfUrl, {
                 responseType: 'arraybuffer', // Necesario para archivos binarios (PDF)
@@ -431,27 +457,27 @@ async function descargarPDF(vin) {
                     'Referer': 'https://secure.tncountyclerk.com/dcli/', // Evita bloqueos de CORS en algunos servidores
                 },
             });
-    
+
             // Verificar que la respuesta sea un PDF
             if (response.headers['content-type'] !== 'application/pdf') {
                 throw new Error('⚠️ La URL no devolvió un PDF válido. Puede requerir autenticación o parámetros adicionales.');
             }
-    
+
             console.log('✅ PDF obtenido correctamente.');
-    
+
             // Crear la carpeta "pdfs" si no existe
             const pdfDir = path.join(__dirname, 'pdfs');
             if (!fs.existsSync(pdfDir)) {
                 fs.mkdirSync(pdfDir, { recursive: true });
                 console.log('📂 Carpeta "pdfs" creada.');
             }
-    
+
             // Guardar el archivo PDF en la carpeta "pdfs"
             const pdfPath = path.join(pdfDir, `trailer-lookup-${vin}.pdf`);
             fs.writeFileSync(pdfPath, response.data);
-    
+
             console.log(`📄 PDF guardado exitosamente en: ${pdfPath}`);
-    
+
             return pdfPath;
 
         } catch (error) {
@@ -461,7 +487,7 @@ async function descargarPDF(vin) {
             if (intentos >= axiosRetriesGet) {
                 console.error('❌ Se alcanzó el número máximo de intentos.');
                 return null;
-                
+
             }
             console.error('🚨 Ocurrió un error al descargar el PDF:', error.message);
         }
@@ -496,7 +522,7 @@ async function descargarYEnviarPDF(url, message) {
 
         if (fileSizeInMB > 8) {
             console.log('⚠️ El archivo es demasiado grande, dividiéndolo en partes...');
-            
+
             // Cargar el PDF original
             const pdfDoc = await PDFDocument.load(fs.readFileSync(filePath));
             const totalPages = pdfDoc.getPages().length;
@@ -562,75 +588,92 @@ async function descargarYEnviarPDF(url, message) {
 }
 // Función para manejar la descarga y conversión del documento
 async function manejarDocumento(url, message) {
-    try {
-        console.log(`📥 Intentando obtener documento desde: ${url}`);
 
-        // Realizar la solicitud al archivo .php con respuesta binaria
-        const response = await axios.get(url, { responseType: 'arraybuffer', timeout: 15000 });
+    const axiosGetDoc = 3;
+    let retryAxios = 0;
 
-        // Verificar si la respuesta es un PDF
-        const contentType = response.headers['content-type'] || '';
-        if (contentType.includes('application/pdf')) {
-            console.log('✅ El archivo obtenido es un PDF válido.');
+    while (retryAxios < axiosGetDoc) {
 
-            // Guardar el PDF y enviarlo
-            const pdfPath = path.join(__dirname, 'pdfs', `chassis_document.pdf`);
-            fs.writeFileSync(pdfPath, response.data);
+        try {
+            console.log(`📥 Intentando obtener documento desde: ${url}`);
 
-            // Verificar tamaño del archivo
-            const stats = fs.statSync(pdfPath);
-            const fileSizeInMB = stats.size / (1024 * 1024);
-            console.log(`📏 Tamaño del archivo: ${fileSizeInMB.toFixed(2)} MB`);
+            // Realizar la solicitud al archivo .php con respuesta binaria
+            const response = await axios.get(url, { responseType: 'arraybuffer', timeout: 15000 });
 
-            if (fileSizeInMB > 8) {
-                console.log('⚠️ El archivo es demasiado grande, dividiéndolo en partes...');
-                await descargarYEnviarPDF(pdfPath, message);
-            } else {
-                // Si el archivo no es demasiado grande, enviarlo directamente
-                const attachment = new AttachmentBuilder(pdfPath);
-                await message.channel.send({ files: [attachment] });
-                console.log('📤 Documento enviado.');
+            // Verificar si la respuesta es un PDF
+            const contentType = response.headers['content-type'] || '';
+            if (contentType.includes('application/pdf')) {
+                console.log('✅ El archivo obtenido es un PDF válido.');
+
+                // Guardar el PDF y enviarlo
+                const pdfPath = path.join(__dirname, 'pdfs', `chassis_document.pdf`);
+                fs.writeFileSync(pdfPath, response.data);
+
+                // Verificar tamaño del archivo
+                const stats = fs.statSync(pdfPath);
+                const fileSizeInMB = stats.size / (1024 * 1024);
+                console.log(`📏 Tamaño del archivo: ${fileSizeInMB.toFixed(2)} MB`);
+
+                if (fileSizeInMB > 8) {
+                    console.log('⚠️ El archivo es demasiado grande, dividiéndolo en partes...');
+                    await descargarYEnviarPDF(pdfPath, message);
+                } else {
+                    // Si el archivo no es demasiado grande, enviarlo directamente
+                    const attachment = new AttachmentBuilder(pdfPath);
+                    await message.channel.send({ files: [attachment] });
+                    console.log('📤 Documento enviado.');
+                }
+
+                return;
             }
 
-            return;
-        }
+            // Si no es PDF, tratar de analizar el HTML
+            console.log('⚠️ No es un PDF directo. Intentando extraer un enlace de la página...');
+            const html = response.data.toString();
+            const $ = cheerio.load(html);
 
-        // Si no es PDF, tratar de analizar el HTML
-        console.log('⚠️ No es un PDF directo. Intentando extraer un enlace de la página...');
-        const html = response.data.toString();
-        const $ = cheerio.load(html);
+            // Buscar enlace a PDF dentro del HTML
+            let pdfLink = $('a[href$=".pdf"]').attr('href');
 
-        // Buscar enlace a PDF dentro del HTML
-        let pdfLink = $('a[href$=".pdf"]').attr('href');
+            // Si no hay enlace, intentar buscar dentro de un iframe o embed
+            if (!pdfLink) {
+                pdfLink = $('iframe[src$=".pdf"]').attr('src') || $('embed[src$=".pdf"]').attr('src');
+            }
 
-        // Si no hay enlace, intentar buscar dentro de un iframe o embed
-        if (!pdfLink) {
-            pdfLink = $('iframe[src$=".pdf"]').attr('src') || $('embed[src$=".pdf"]').attr('src');
-        }
+            if (pdfLink) {
+                console.log(`🔗 Enlace de PDF encontrado en la página: ${pdfLink}`);
 
-        if (pdfLink) {
-            console.log(`🔗 Enlace de PDF encontrado en la página: ${pdfLink}`);
-
-            // Llamar a la función para descargar el PDF
-            await descargarYEnviarPDF(pdfLink, message);
-        } else {
-            console.log('⚠️ No se encontró un enlace a un PDF en el documento PHP.');
-            await message.followUp('El archivo esta en formato PHP, intentando convertir...');
-
-            // Intentar descargar el PDF manualmente con el VIN
-            const vin = vehicleIdNumber;
-            const pdfPath = await descargarPDF(vin);
-
-            if (pdfPath) {
-                await message.channel.send({ files: [pdfPath] });
+                // Llamar a la función para descargar el PDF
+                await descargarYEnviarPDF(pdfLink, message);
             } else {
-                await message.followUp('❌ No se pudo generar el archivo PDF.');
+                console.log('⚠️ No se encontró un enlace a un PDF en el documento PHP.');
+                await message.followUp('El archivo esta en formato PHP, intentando convertir...');
+
+                // Intentar descargar el PDF manualmente con el VIN
+                const vin = vehicleIdNumber;
+                const pdfPath = await descargarPDF(vin);
+
+                if (pdfPath) {
+                    await message.channel.send({ files: [pdfPath] });
+                } else {
+                    await message.followUp('❌ No se pudo generar el archivo PDF.');
+                }
+
+                return;
+            }
+        } catch (error) {
+            retryAxios++;
+            console.error(`❌ Error al obtener documento (Intento ${retryAxios}):`, error);
+
+            if (retryAxios >= axiosGetDoc) {
+
+                console.error('❌ Error al manejar el archivo .php:', error);
+                message.followUp('Hubo un error al procesar el documento.');
+                return;
             }
         }
-    } catch (error) {
-        console.error('❌ Error al manejar el archivo .php:', error);
-        message.followUp('Hubo un error al procesar el documento.');
     }
+
 }
 
 
