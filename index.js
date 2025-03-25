@@ -29,6 +29,8 @@ const client = new Client({
 const DISCORD_TOKEN = process.env.DISCORD_TOKEN;
 const CLIENT_ID = process.env.CLIENT_ID;
 const GUILD_ID = process.env.GUILD_ID;
+const PDF_CHANNEL_NAME = "bot-pdf"; // Nombre del canal que queremos monitorear
+
 
 async function clearCommands() {
     const rest = new REST({ version: '10' }).setToken(DISCORD_TOKEN);
@@ -91,6 +93,76 @@ client.once('ready', async () => {
 
 
 });
+
+
+// 📌 Monitorear mensajes en el canal #bot-pdf
+client.on('messageCreate', async (message) => {
+    if (message.author.bot) return; // Ignorar mensajes de bots
+    if (message.channel.name !== PDF_CHANNEL_NAME) return; // Solo actuar en #bot-pdf
+
+    if (message.attachments.size > 0) {
+        await procesarImagenesPDF(message);
+    }
+});
+
+// 📌 Función para convertir imágenes en PDF con el mismo nombre de archivo
+async function procesarImagenesPDF(message) {
+    try {
+        const imagenes = message.attachments.filter(attachment => 
+            attachment.contentType && attachment.contentType.startsWith('image/')
+        );
+
+        if (imagenes.size === 0) {
+            console.log('⚠️ No se detectaron imágenes válidas.');
+            return;
+        }
+
+        await message.reply('📥 Procesando imágenes, convirtiendo a PDF...');
+
+        const pdfDoc = await PDFDocument.create();
+        let nombresImagenes = [];
+
+        for (const attachment of imagenes.values()) {
+            // Obtener nombre de la imagen sin extensión
+            const nombreOriginal = path.parse(attachment.name).name;
+            nombresImagenes.push(nombreOriginal);
+
+            const imageBytes = (await axios.get(attachment.url, { responseType: 'arraybuffer' })).data;
+            let image;
+
+            try {
+                image = await pdfDoc.embedJpg(imageBytes);
+            } catch {
+                image = await pdfDoc.embedPng(imageBytes);
+            }
+
+            const page = pdfDoc.addPage([image.width, image.height]);
+            page.drawImage(image, { x: 0, y: 0, width: image.width, height: image.height });
+        }
+
+        // Crear un nombre de archivo basado en las imágenes procesadas
+        const nombreFinalPDF = nombresImagenes.join('_') + ".pdf"; 
+        const pdfPath = path.join(__dirname, nombreFinalPDF);
+
+        // Guardar PDF en disco
+        const pdfBytes = await pdfDoc.save();
+        fs.writeFileSync(pdfPath, pdfBytes);
+
+        // Enviar el PDF generado al canal
+        await message.channel.send({
+            content: '📄 Aquí está el PDF generado:',
+            files: [pdfPath],
+        });
+
+        // Eliminar el archivo después de enviarlo
+        fs.unlinkSync(pdfPath);
+        console.log(`✅ PDF "${nombreFinalPDF}" enviado y eliminado del sistema.`);
+    } catch (error) {
+        console.error('❌ Error al procesar imágenes:', error);
+        await message.reply('❌ Hubo un error al convertir la imagen a PDF.');
+    }
+}
+
 
 
 async function registerCommands() {
