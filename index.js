@@ -106,6 +106,7 @@ client.on('messageCreate', async (message) => {
 });
 
 // 📌 Función para convertir imágenes en PDF con el mismo nombre de archivo
+// 📌 Función para convertir múltiples imágenes a un solo PDF
 async function procesarImagenesPDF(message) {
     try {
         const imagenes = message.attachments.filter(attachment => 
@@ -117,7 +118,7 @@ async function procesarImagenesPDF(message) {
             return;
         }
 
-        await message.reply('📥 Procesando imágenes, convirtiendo a PDF...');
+        await message.reply('📥 Procesando imágenes, convirtiéndolas en un PDF...');
 
         const pdfDoc = await PDFDocument.create();
         let nombresImagenes = [];
@@ -136,12 +137,17 @@ async function procesarImagenesPDF(message) {
                 image = await pdfDoc.embedPng(imageBytes);
             }
 
+            // Crear una nueva página con el tamaño de la imagen
             const page = pdfDoc.addPage([image.width, image.height]);
             page.drawImage(image, { x: 0, y: 0, width: image.width, height: image.height });
         }
 
-        // Crear un nombre de archivo basado en las imágenes procesadas
-        const nombreFinalPDF = nombresImagenes.join('_') + ".pdf"; 
+        // Limitar la longitud del nombre si hay muchas imágenes
+        let nombreFinalPDF = nombresImagenes.slice(0, 3).join('_') + ".pdf"; 
+        if (nombresImagenes.length > 3) {
+            nombreFinalPDF = `varias_imagenes_${Date.now()}.pdf`; // Nombre genérico si hay muchas imágenes
+        }
+
         const pdfPath = path.join(__dirname, nombreFinalPDF);
 
         // Guardar PDF en disco
@@ -150,7 +156,7 @@ async function procesarImagenesPDF(message) {
 
         // Enviar el PDF generado al canal
         await message.channel.send({
-            content: '📄 Aquí está el PDF generado:',
+            content: '📄 Aquí está el PDF con todas las imágenes:',
             files: [pdfPath],
         });
 
@@ -159,9 +165,10 @@ async function procesarImagenesPDF(message) {
         console.log(`✅ PDF "${nombreFinalPDF}" enviado y eliminado del sistema.`);
     } catch (error) {
         console.error('❌ Error al procesar imágenes:', error);
-        await message.reply('❌ Hubo un error al convertir la imagen a PDF.');
+        await message.reply('❌ Hubo un error al convertir las imágenes a PDF.');
     }
 }
+
 
 
 
