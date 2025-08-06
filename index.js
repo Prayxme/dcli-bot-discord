@@ -462,7 +462,9 @@ async function generarScreenshotChasis(searchType, searchValue, interaction) {
                 await interaction.followUp('No se ha podido hacer la captura, reintentando...');
             }
 
-            const browser = await puppeteer.launch({ headless: true });
+            const browser = await puppeteer.launch({ headless: true, 
+                args: ['--no-sandbox', '--disable-setuid-sandbox'] // Para evitar problemas de sandboxing en algunos entornos como Linux, si se esta en windows se puede comentar esta linea
+            });
             const page = await browser.newPage();
 
             // Establecer el viewport a un tamaño más pequeño si es necesario para mejorar la carga
