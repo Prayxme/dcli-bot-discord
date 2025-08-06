@@ -470,9 +470,11 @@ async function generarScreenshotChasis(searchType, searchValue, interaction) {
 
             // Incrementar el timeout a 30 segundos y usar 'networkidle0' para esperar hasta que la página esté completamente cargada
             await page.goto(url, {
-                waitUntil: 'networkidle0',
-                timeout: 30000  // Timeout aumentado a 30 segundos
+                waitUntil: 'domcontentloaded',
+                timeout: 60000  // Timeout aumentado a 30 segundos
             });
+
+            await new Promise(resolve => setTimeout(resolve, 3000)); // Esperar 3 segundos para asegurar que la página esté completamente cargada
 
             // Eliminar el footer antes de capturar el screenshot
             await page.evaluate(() => {
