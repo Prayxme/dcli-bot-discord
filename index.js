@@ -363,35 +363,60 @@ client.on('interactionCreate', async (interaction) => {
 
 client.on('interactionCreate', async (interaction) => {
     if (!interaction.isButton()) return;
-
     if (interaction.customId === 'copy_info') {
-        const modal = new ModalBuilder()
-            .setCustomId('copy_info_modal')
-            .setTitle('Información para copiar');
+        
+        try {
+            await interaction.deferReply({
+                ephemeral: true
+            });
 
-        const textInput = new TextInputBuilder()
-            .setCustomId('copy_data')
-            .setLabel('Selecciona y copia todo el texto')
-            .setStyle(TextInputStyle.Paragraph)
-            .setValue(lastResultText.substring(0, 3950)); // Discord limita a 4000 chars
-
-        const row = new ActionRowBuilder().addComponents(textInput);
-        modal.addComponents(row);
-
-        await interaction.showModal(modal);
+            await interaction.editReply({
+                content: `\n\n\`\`\`\n${lastResultText}\n\`\`\``,
+                ephemeral: true
+            });
+        } catch (error) {
+            console.error('❌ Error al manejar el botón de copiar información:', error);
+            await interaction.editReply({
+                content: '🚨 Hubo un error al copiar la información.',
+                ephemeral: true
+            });
+            
+        }
     }
 });
 
-client.on('interactionCreate', async (interaction) => {
-    if (!interaction.isModalSubmit()) return;
+//codigo para usar un modal y copiar el texto
+// client.on('interactionCreate', async (interaction) => {
+//     if (!interaction.isButton()) return;
 
-    if (interaction.customId === 'copy_info_modal') {
-        await interaction.reply({
-            content: "📋 ¡Perfecto! Puedes copiar la información desde el cuadro que se abrió.",
-            ephemeral: true
-        });
-    }
-});
+//     if (interaction.customId === 'copy_info') {
+//         const modal = new ModalBuilder()
+//             .setCustomId('copy_info_modal')
+//             .setTitle('Información para copiar');
+
+//         const textInput = new TextInputBuilder()
+//             .setCustomId('copy_data')
+//             .setLabel('Selecciona y copia todo el texto')
+//             .setStyle(TextInputStyle.Paragraph)
+//             .setValue(lastResultText.substring(0, 3950)); // Discord limita a 4000 chars
+
+//         const row = new ActionRowBuilder().addComponents(textInput);
+//         modal.addComponents(row);
+
+//         await interaction.showModal(modal);
+//     }
+// });
+
+// client.on('interactionCreate', async (interaction) => {
+//     if (!interaction.isModalSubmit()) return;
+
+//     if (interaction.customId === 'copy_info_modal') {
+//         await interaction.reply({
+//             content: "📋 ¡Perfecto! Puedes copiar la información desde el cuadro que se abrió.",
+//             ephemeral: true
+//         });
+//     }
+// });
 
 
 // Función para buscar chasis
@@ -418,7 +443,7 @@ async function buscar(searchType, searchValue, interaction) {
             
 
             // ---------- LIMPIEZA SELECTIVA ANTES DE EXTRAER DATOS ----------
-            console.log('🔎 Limpiando posibles elementos "Download" no deseados...');
+            // console.log('🔎 Limpiando posibles elementos "Download" no deseados...');
 
             try {
             // 1) Encontrar todos los anchors con texto "Download" (mayúsculas/minúsculas)
@@ -427,7 +452,7 @@ async function buscar(searchType, searchValue, interaction) {
                 return txt.trim().toLowerCase() === 'download';
             });
 
-            console.log(`ℹ️ Encontrados ${allDownloadAnchors.length} anchors con texto "Download".`);
+            // console.log(`ℹ️ Encontrados ${allDownloadAnchors.length} anchors con texto "Download".`);
 
             // 2) Para cada anchor, si NO está dentro de un contenedor .data-wrapper.download -> eliminarlo
             allDownloadAnchors.each((i, el) => {
@@ -446,7 +471,7 @@ async function buscar(searchType, searchValue, interaction) {
                     $el.remove();
                 }
                 } else {
-                console.log(`✅ Conservar anchor "Download" dentro de .data-wrapper.download #${i}`);
+                // console.log(`✅ Conservar anchor "Download" dentro de .data-wrapper.download #${i}`);
                 }
             });
 
@@ -682,7 +707,7 @@ async function descargarPDF(vin) {
                 throw new Error('⚠️ La URL no devolvió un PDF válido. Puede requerir autenticación o parámetros adicionales.');
             }
 
-            console.log('✅ PDF obtenido correctamente.');
+            // console.log('✅ PDF obtenido correctamente.');
 
             // Crear la carpeta "pdfs" si no existe
             const pdfDir = path.join(__dirname, 'pdfs');
@@ -847,7 +872,7 @@ async function manejarDocumento(url, message) {
             }
 
             // Si no es PDF, tratar de analizar el HTML
-            console.log('⚠️ No es un PDF directo. Intentando extraer un enlace de la página...');
+            // console.log('⚠️ No es un PDF directo. Intentando extraer un enlace de la página...');
             const html = response.data.toString();
             const $ = cheerio.load(html);
 
@@ -865,7 +890,7 @@ async function manejarDocumento(url, message) {
                 // Llamar a la función para descargar el PDF
                 await descargarYEnviarPDF(pdfLink, message);
             } else {
-                console.log('⚠️ No se encontró un enlace a un PDF en el documento PHP.');
+                // console.log('⚠️ No se encontró un enlace a un PDF en el documento PHP.');
                 await message.followUp('El archivo esta en formato PHP, intentando convertir...');
 
                 // Intentar descargar el PDF manualmente con el VIN
