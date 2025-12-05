@@ -1,4 +1,4 @@
-const { Client, GatewayIntentBits, AttachmentBuilder, REST, Routes, SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, ModalBuilder, TextInputBuilder, TextInputStyle } = require('discord.js');
+const { Client, GatewayIntentBits, AttachmentBuilder, REST, Routes, SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, ModalBuilder, TextInputBuilder, TextInputStyle, MessageFlags } = require('discord.js');
 require('dotenv').config();
 const axios = require('axios');
 const axiosRetry = require('axios-retry').default;
@@ -47,29 +47,6 @@ async function clearCommands() {
 
 clearCommands();
 
-// const rest = new REST({ version: '10' }).setToken(DISCORD_TOKEN);
-
-// // //borrar comandos registrados en el bot
-// async function deleteGuildCommands() {
-//     try {
-//         console.log('⏳ Obteniendo comandos registrados en el servidor...');
-
-//         const commands = await rest.get(Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID));
-
-//         for (const command of commands) {
-//             await rest.delete(Routes.applicationGuildCommand(CLIENT_ID, GUILD_ID, command.id));
-//             console.log(`✅ Comando eliminado: ${command.name}`);
-//         }
-
-//         console.log('🎯 Todos los comandos del servidor han sido eliminados.');
-//     } catch (error) {
-//         console.error('❌ Error al eliminar comandos:', error);
-//     }
-// }
-
-// deleteGuildCommands();
-
-
 
 client.once('ready', async () => {
     console.log(`Bot conectado como ${client.user.tag}`);
@@ -83,6 +60,7 @@ client.once('ready', async () => {
 
         if (channel) {
             //Mensaje de bienvenida al canal general cuando el bot se inicie
+
             // channel.send('@everyone 🟢🚀 **Estamos de vuelta!!!** El bot está activo y listo para ayudar. 🔍');
             console.log('✅ Mensaje de activación enviado correctamente.');
         }else{
@@ -109,6 +87,7 @@ client.on('messageCreate', async (message) => {
 });
 
 // 📌 Función para convertir imágenes en PDF con el mismo nombre de archivo
+
 // 📌 Función para convertir múltiples imágenes a un solo PDF
 async function procesarImagenesPDF(message) {
     try {
@@ -173,8 +152,6 @@ async function procesarImagenesPDF(message) {
 }
 
 
-
-
 async function registerCommands() {
 
     // Registrar comandos de barra (slash)
@@ -216,113 +193,6 @@ async function registerCommands() {
     }
 }
 
-// Función principal para manejar el comando !buscar
-// client.on('messageCreate', async (message) => {
-//     if (message.author.bot) return;
-
-//     let msgContent = message.content.toLowerCase();
-
-//     if (msgContent.startsWith('/chassis') || msgContent.startsWith('/plate')) {
-//         const args = message.content.split(' '); // Obtener los argumentos del mensaje
-//         const searchType = msgContent.startsWith('/chassis') ? 'chassis' : 'plate'; // Determinar si es chassis o plate
-//         const searchValue = args[1]; // El valor de búsqueda (número de chasis o placa)
-
-//         if (!searchValue) {
-//             message.reply('Por favor, proporciona un número de chasis o placa después de "!buscar".');
-//             return;
-//         }
-
-//         if (!['chassis', 'plate'].includes(searchType)) {
-//             message.reply('Por favor, utiliza "chassis" o "plate" para especificar el tipo de búsqueda.');
-//             return;
-//         }
-
-//         try {
-//             await message.reply('Procesando la solicitud...');
-
-//             const { text, downloadLink } = await buscar(searchType, searchValue, message);
-
-//             // Intentar generar el screenshot con reintentos
-//             let screenshotPath = null;
-
-//             try {
-//                 screenshotPath = await generarScreenshotChasis(searchType, searchValue, message);
-//             } catch (error) {
-//                 await message.reply('No se pudo hacer la captura del chassis.');
-//                 return;
-//             }
-
-//             // Si la captura se generó correctamente, enviarla
-//             if (screenshotPath) {
-//                 await message.channel.send({ files: [screenshotPath] });
-//             }
-
-//             // Si hay un enlace de descarga, lo manejamos
-//             if (downloadLink) {
-//                 await manejarDocumento(downloadLink, message);
-//             }
-
-//         } catch (error) {
-//             console.error(error);
-//             message.reply('Hubo un error al realizar la búsqueda.');
-//         }
-//     }
-// });
-
-// client.on('messageCreate', async (message) => {
-//     if (message.author.bot) return;
-
-//     let msgContent = message.content.toLowerCase();
-
-//     // Verificar si el mensaje es un comando de barra
-//     if (msgContent.startsWith('/chassis') || msgContent.startsWith('/plate')) {
-//         const args = message.content.split(' ');
-//         const searchType = msgContent.startsWith('/chassis') ? 'chassis' : 'plate';
-//         const searchValue = args[1];
-
-//         if (!searchValue) {
-//             await message.reply('❗ Por favor, proporciona un número de chasis o placa después del comando.');
-//             return;
-//         }
-
-//         if (!['chassis', 'plate'].includes(searchType)) {
-//             await message.reply('⚠️ Por favor, utiliza `/chassis` o `/plate` para especificar el tipo de búsqueda.');
-//             return;
-//         }
-
-//         try {
-//             await message.reply('🔍 Procesando la solicitud...');
-
-//             // Obtener la información básica del chasis o placa
-//             const { text, downloadLink } = await buscar(searchType, searchValue, message);
-
-//             // Intentar generar el screenshot con manejo de errores
-//             let screenshotPath = null;
-
-//             try {
-//                 screenshotPath = await generarScreenshotChasis(searchType, searchValue, message);
-//             } catch (error) {
-//                 console.error('❌ Error al generar el screenshot:', error);
-//                 await message.reply('⚠️ No se pudo generar la captura del chasis.');
-//                 return;
-//             }
-
-//             // Enviar el screenshot si fue generado correctamente
-//             if (screenshotPath) {
-//                 await message.channel.send({ files: [screenshotPath] });
-//             }
-
-//             // Si hay un enlace de descarga, manejarlo
-//             if (downloadLink) {
-//                 await manejarDocumento(downloadLink, message);
-//             }
-
-//         } catch (error) {
-//             console.error('❌ Error al procesar la solicitud:', error);
-//             await message.reply('🚨 Hubo un error al realizar la búsqueda. Inténtalo de nuevo más tarde.');
-//         }
-//     }
-// });
 
 client.on('interactionCreate', async (interaction) => {
     if (!interaction.isCommand()) return;
@@ -367,18 +237,18 @@ client.on('interactionCreate', async (interaction) => {
         
         try {
             await interaction.deferReply({
-                ephemeral: true
+                flags: MessageFlags.Ephemeral
             });
 
             await interaction.editReply({
                 content: `\n\n\`\`\`\n${lastResultText}\n\`\`\``,
-                ephemeral: true
+                flags: MessageFlags.Ephemeral
             });
         } catch (error) {
             console.error('❌ Error al manejar el botón de copiar información:', error);
             await interaction.editReply({
                 content: '🚨 Hubo un error al copiar la información.',
-                ephemeral: true
+                flags: MessageFlags.Ephemeral
             });
             
         }
@@ -413,7 +283,7 @@ client.on('interactionCreate', async (interaction) => {
 //     if (interaction.customId === 'copy_info_modal') {
 //         await interaction.reply({
 //             content: "📋 ¡Perfecto! Puedes copiar la información desde el cuadro que se abrió.",
-//             ephemeral: true
+//             flags: MessageFlags.Ephemeral
 //         });
 //     }
 // });
