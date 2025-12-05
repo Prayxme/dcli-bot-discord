@@ -1,4 +1,4 @@
-const { Client, GatewayIntentBits, AttachmentBuilder, REST, Routes, SlashCommandBuilder } = require('discord.js');
+const { Client, GatewayIntentBits, AttachmentBuilder, REST, Routes, SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, ModalBuilder, TextInputBuilder, TextInputStyle } = require('discord.js');
 require('dotenv').config();
 const axios = require('axios');
 const axiosRetry = require('axios-retry').default;
@@ -8,6 +8,8 @@ const puppeteer = require('puppeteer');
 const { PDFDocument } = require('pdf-lib');
 const cheerio = require('cheerio');
 let vehicleIdNumber
+let lastResultText = "";
+
 
 
 
@@ -80,7 +82,8 @@ client.once('ready', async () => {
         // const channel = guild.channels.cache.find('1332027926098739234'); // ID del canal general
 
         if (channel) {
-            channel.send('@everyone 🟢🚀 **Estamos de vuelta!!!** El bot está activo y listo para ayudar. 🔍');
+            //Mensaje de bienvenida al canal general cuando el bot se inicie
+            // channel.send('@everyone 🟢🚀 **Estamos de vuelta!!!** El bot está activo y listo para ayudar. 🔍');
             console.log('✅ Mensaje de activación enviado correctamente.');
         }else{
             console.error('❌ No se pudo encontrar el canal "general".');
@@ -358,6 +361,38 @@ client.on('interactionCreate', async (interaction) => {
     }
 });
 
+client.on('interactionCreate', async (interaction) => {
+    if (!interaction.isButton()) return;
+
+    if (interaction.customId === 'copy_info') {
+        const modal = new ModalBuilder()
+            .setCustomId('copy_info_modal')
+            .setTitle('Información para copiar');
+
+        const textInput = new TextInputBuilder()
+            .setCustomId('copy_data')
+            .setLabel('Selecciona y copia todo el texto')
+            .setStyle(TextInputStyle.Paragraph)
+            .setValue(lastResultText.substring(0, 3950)); // Discord limita a 4000 chars
+
+        const row = new ActionRowBuilder().addComponents(textInput);
+        modal.addComponents(row);
+
+        await interaction.showModal(modal);
+    }
+});
+
+client.on('interactionCreate', async (interaction) => {
+    if (!interaction.isModalSubmit()) return;
+
+    if (interaction.customId === 'copy_info_modal') {
+        await interaction.reply({
+            content: "📋 ¡Perfecto! Puedes copiar la información desde el cuadro que se abrió.",
+            ephemeral: true
+        });
+    }
+});
+
 
 // Función para buscar chasis
 async function buscar(searchType, searchValue, interaction) {
@@ -365,76 +400,177 @@ async function buscar(searchType, searchValue, interaction) {
         ? `https://dcli.com/track-a-chassis/?0-chassisType=chassis&searchChassis=${searchValue}`
         : `https://dcli.com/track-a-chassis/?0-chassisType=plate&searchChassis=${searchValue}`;
 
-    const maxRetries = 3;  // Número máximo de reintentos
-    let attempt = 0;       // Contador de intentos
+    const maxRetries = 3;
+    let attempt = 0;
 
     while (attempt < maxRetries) {
         try {
-            console.log(`🔍 Buscando por ${searchType} con valor: ${searchValue} (Intento ${attempt + 1})`);
+            console.log(`🔍 Buscando por ${searchType} = ${searchValue} (Intento ${attempt + 1})`);
 
             const { data } = await axios.get(url, { timeout: 15000 });
-            console.log("✅ Página obtenida con éxito");
-
             const $ = cheerio.load(data);
             const wrapper = $('.info-wrapper');
 
             if (wrapper.length === 0) {
-                console.log("❌ No se encontró el contenedor del chasis o placa");
-                await interaction.followUp('El chasis o placa no fue encontrado.');
+                await interaction.followUp('❌ No se encontró el chasis o placa.');
                 return;
             }
+            
 
-            let resultText = `**PHYSICAL INFORMATION**\n`;
+            // ---------- LIMPIEZA SELECTIVA ANTES DE EXTRAER DATOS ----------
+            console.log('🔎 Limpiando posibles elementos "Download" no deseados...');
+
+            try {
+            // 1) Encontrar todos los anchors con texto "Download" (mayúsculas/minúsculas)
+            const allDownloadAnchors = wrapper.find('a.link').filter((i, el) => {
+                const txt = $(el).text() || '';
+                return txt.trim().toLowerCase() === 'download';
+            });
+
+            console.log(`ℹ️ Encontrados ${allDownloadAnchors.length} anchors con texto "Download".`);
+
+            // 2) Para cada anchor, si NO está dentro de un contenedor .data-wrapper.download -> eliminarlo
+            allDownloadAnchors.each((i, el) => {
+                const $el = $(el);
+                const downloadWrapperParent = $el.closest('.data-wrapper.download');
+
+                if (downloadWrapperParent.length === 0) {
+                // No está dentro del bloque de descarga oficial -> eliminar el elemento causante del espacio
+                // Intentamos eliminar el contenedor más cercano que sea .data-wrapper, si existe, sino el anchor mismo
+                const parentDataWrapper = $el.closest('.data-wrapper');
+                if (parentDataWrapper.length) {
+                    console.log(`🗑️ Eliminando contenedor no deseado .data-wrapper (Download) #${i}`);
+                    parentDataWrapper.remove();
+                } else {
+                    console.log(`🗑️ Eliminando anchor "Download" suelto #${i}`);
+                    $el.remove();
+                }
+                } else {
+                console.log(`✅ Conservar anchor "Download" dentro de .data-wrapper.download #${i}`);
+                }
+            });
+
+            // 3) Como doble seguridad: eliminar cualquier div.data-wrapper.download vacío o que sólo contenga whitespace
+            wrapper.find('div.data-wrapper.download').each((i, el) => {
+                const $el = $(el);
+                if ($el.text().trim() === '') {
+                console.log('🧹 Eliminando div.data-wrapper.download vacío (seguridad).');
+                $el.remove();
+                }
+            });
+
+            } catch (err) {
+            console.warn('⚠️ Error durante la limpieza selectiva de "Download":', err.message);
+            }
+
+
 
             const obtenerDato = (label) => {
                 const element = wrapper.find(`div.data-wrapper:has(div:contains("${label}")) div:last-child`);
                 return element.text().trim() || 'N/A';
             };
 
-            // Obtener toda la información
-            resultText += `**Chassis Number**\n${obtenerDato('Chassis Number')}\n`;
-            resultText += `**Chassis Size & Type**\n${obtenerDato('Chassis Size & Type')}\n`;
-            resultText += `**Chassis Plate Number**\n${obtenerDato('Chassis Plate Number')}\n`;
-            resultText += `**Vehicle Id Number**\n${obtenerDato('Vehicle Id Number')}\n`;
-            resultText += `**Region**\n${obtenerDato('Region')}\n`;
-            resultText += `**Last FMCSA Date**\n${obtenerDato('Last FMCSA Date')}\n`;
-            resultText += `**Last BIT Date**\n${obtenerDato('Last BIT Date')}\n`;
+            // Valores extraídos
+            const info = {
+                chassisNumber: obtenerDato('Chassis Number'),
+                sizeType: obtenerDato('Chassis Size & Type'),
+                plate: obtenerDato('Chassis Plate Number'),
+                vin: obtenerDato('Vehicle Id Number'),
+                region: obtenerDato('Region'),
+                lastFMCSA: obtenerDato('Last FMCSA Date'),
+                lastBIT: obtenerDato('Last BIT Date')
+            };
 
-            vehicleIdNumber = obtenerDato('Vehicle Id Number');
-            console.log(`🚗 Vehicle Id Number: ${vehicleIdNumber}`);
+            vehicleIdNumber = info.vin;
 
-            // Buscando el enlace de descarga
+            // Texto para copiar
+            const resultText =
+                `PHYSICAL INFORMATION
+Chassis Number
+${info.chassisNumber}
+Chassis Size & Type
+${info.sizeType}
+Plate Number
+${info.plate}
+Vehicle Id Number
+${info.vin}
+Region
+${info.region}
+Last FMCSA
+${info.lastFMCSA}
+Last BIT
+${info.lastBIT}`;
+
+            lastResultText = resultText.replace(/\n{2,}/g, '\n').trim();
+
+            // Obtener link de descarga
             const downloadElement = wrapper.find('div.data-wrapper.download a.link');
-            const downloadLink = downloadElement.attr('href') ? downloadElement.attr('href').trim() : null;
+            const downloadLink = downloadElement.attr('href') || null;
 
-            console.log(`🔗 Enlace extraído de la página: ${downloadLink || 'No encontrado'}`);
+            // ---------------------------------------------------------
+            // 📌 EMBED
+            // ---------------------------------------------------------
+            const embed = new EmbedBuilder()
+                .setTitle(`🔍 Información — ${searchType === "chassis" ? "Chassis" : "Plate"}`)
+                .setColor('#0099ff')
+                .addFields(
+                    { name: 'Chassis Number', value: info.chassisNumber, inline: true },
+                    { name: 'Size & Type', value: info.sizeType, inline: true },
+                    { name: 'Plate Number', value: info.plate, inline: true },
+                    { name: 'VIN', value: info.vin, inline: true },
+                    { name: 'Region', value: info.region, inline: true },
+                    { name: 'Last FMCSA', value: info.lastFMCSA, inline: true },
+                    { name: 'Last BIT', value: info.lastBIT, inline: true },
+                )
+                .setFooter({ text: 'Información generada automáticamente' });
 
-            // Enviar toda la información de una vez
-            await interaction.followUp(resultText);
+            // ---------------------------------------------------------
+            // 📌 BOTONES
+            // ---------------------------------------------------------
+            const row = new ActionRowBuilder().addComponents(
+                new ButtonBuilder()
+                    .setCustomId('copy_info')
+                    .setLabel('📋 Copiar información')
+                    .setStyle(ButtonStyle.Primary)
+            );
 
-            // Si hay un enlace de descarga, lo enviamos también
             if (downloadLink) {
-                await interaction.followUp(`📄 **Descargar documento:** ${downloadLink}`);
-                return { text: resultText, downloadLink };
+                row.addComponents(
+                    new ButtonBuilder()
+                        .setLabel('📄 Abrir Documento')
+                        .setStyle(ButtonStyle.Link)
+                        .setURL(downloadLink)
+                );
             }
 
-            return { text: resultText };
+            // Enviar embed + botones
+            await interaction.followUp({
+                embeds: [embed],
+                components: [row]
+            });
+
+            // 🧹 LIMPIAR TEXTO: eliminar 'Download' y líneas vacías
+            lastResultText = lastResultText
+                .replace(/Download/gi, '')            // Elimina palabra "Download"
+                .replace(/\n{3,}/g, '\n\n')           // Reduce saltos de línea excesivos
+                .trim();                              // Limpia espacios al inicio y final
+
+            return { text: lastResultText, downloadLink };
 
         } catch (error) {
             attempt++;
-            console.error(`❌ Error en la función buscar (Intento ${attempt}):`, error.message);
+            console.error(`❌ Error buscar (Intento ${attempt}):`, error);
 
-            if (attempt < maxRetries) {
-                console.log('🔁 Reintentando...');
-                await new Promise(res => setTimeout(res, 3000)); // Esperar 3 segundos antes de reintentar
-            } else {
-                console.log('🚨 Se alcanzó el número máximo de intentos.');
-                await interaction.followUp('❌ No se pudo completar la búsqueda después de varios intentos.');
-                throw new Error('Hubo un error al realizar la búsqueda después de varios intentos.');
+            if (attempt >= maxRetries) {
+                await interaction.followUp('❌ No se pudo completar la búsqueda.');
+                throw error;
             }
+
+            await new Promise(r => setTimeout(r, 3000));
         }
     }
 }
+
 
 
 // Función para generar un screenshot usando Puppeteer
